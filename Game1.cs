@@ -73,15 +73,15 @@ namespace Test {
             Tileset = Content.Load<Texture2D>("Original");
             font = Content.Load<SpriteFont>("MainFont");
             FadeTexture = new Texture2D(GraphicsDevice, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
-            soundEffects.Add(Content.Load<SoundEffect>("sneeze"));
+            soundEffects.Add(Content.Load<SoundEffect>("BoxPushSoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("EnimeMovingSoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("KeySoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("LevelFinnishSoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("LockSoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("MenuChangeSoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("MenuSelectSoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("SpikeSoundEffect"));
+            soundEffects.Add(Content.Load<SoundEffect>("WalkingSoundEffect"));
         }
 
         protected override void Update(GameTime gameTime) {
@@ -103,6 +103,7 @@ namespace Test {
                         } else {
                             if (Map[(y / 2) + ((x / 40) - 2)] == "0x00") {
                                 ButtonsPressed++;
+                                soundEffects[0].Play();
                                 PlayerDir = 0;
                                 PLayerAniTime = 1;
                                 Map[(y / 2) + ((x / 40) - 1)] = "0x00";
@@ -125,6 +126,7 @@ namespace Test {
                         } else {
                             if (Map[(((y / 40) - 2) * 20) + (x / 40)] == "0x00") {
                                 ButtonsPressed++;
+                                soundEffects[0].Play();
                                 PlayerDir = 1;
                                 PLayerAniTime = 1;
                                 Map[(((y / 40) - 1) * 20) + (x / 40)] = "0x00";
@@ -147,6 +149,7 @@ namespace Test {
                         } else {
                             if (Map[(y / 2) + ((x / 40) + 2)] == "0x00") {
                                 ButtonsPressed++;
+                                soundEffects[0].Play();
                                 PlayerDir = 2;
                                 PLayerAniTime = 1;
                                 Map[(y / 2) + ((x / 40) + 1)] = "0x00";
@@ -169,6 +172,7 @@ namespace Test {
                         } else {
                             if (Map[(((y / 40) + 2) * 20) + (x / 40)] == "0x00") {
                                 ButtonsPressed++;
+                                soundEffects[0].Play();
                                 PlayerDir = 3;
                                 PLayerAniTime = 1;
                                 Map[(((y / 40) + 1) * 20) + (x / 40)] = "0x00";
@@ -276,9 +280,7 @@ namespace Test {
         public void PostionCheck() {
             switch (Map[((y / 40) * 20) + (x / 40)]) {
                 case "0x01":
-                    //if (SoundEffectsOn == true) {
-                    //    PlaySound(LevelFinnishSoundEffect);
-                    //}
+                    soundEffects[3].Play();
                     //Draw();
                     CurrentLevel++;
                     Transition(0);
@@ -306,9 +308,7 @@ namespace Test {
                     //}
                     break;
                 case "0x04":
-                    //if (SoundEffectsOn == true){
-                    //    PlaySound(KeySoundEffect);
-                    //}
+                    soundEffects[2].Play();
                     KeysInHand++;
                     Map[((y / 40) * 20) + (x / 40)] = "0x00";
                     if (KeysInHand == KeysNeeded) {
@@ -321,9 +321,7 @@ namespace Test {
                     }
                     break;
                 case "0x13":
-                    //if (SoundEffectsOn == true){
-                    //    PlaySound(LockSoundEffect);
-                    //}
+                    soundEffects[4].Play();
                     if (Fence[0] != 0) {
                         if (Fence[0] == 1) {
                             Map[((y / 40) * 20) + (x / 40)] = "0x00";
@@ -346,9 +344,7 @@ namespace Test {
                 /*case 0x46:
                     if (OnTeleport == false) {
                         OnTeleport = true;
-                        if (SoundEffectsOn == true) {
-                            PlaySound(KeySoundEffect);
-                        }
+                        SoundEffects[2].Play();
                         for (i = 0; i < 360; i++) {
                             if (i != ((Player[1] / 40) * 20) + (Player[0] / 40)) {
                                 if (Map[i] == 0x46) {
