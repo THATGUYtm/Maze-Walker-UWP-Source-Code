@@ -5,15 +5,6 @@ using Microsoft.Xna.Framework.Media;
 using Microsoft.Xna.Framework.Audio;
 using System.Collections.Generic;
 using System;
-using Windows.System;
-using Windows.Storage.Streams;
-using Windows.Services.Store;
-using Windows.Gaming.XboxLive.Storage;
-using Microsoft.Xbox.Services;
-using Microsoft.Xbox.Services.System;
-using Microsoft.Xbox.Services.Presence;
-using Microsoft.Xbox.Services.Statistics.Manager;
-using System.Threading.Tasks;
 
 namespace Test {
     public class Game1 : Game {
@@ -47,7 +38,7 @@ namespace Test {
         public int WalkAniTime = 0;
         public int x = 40;
         public int y = 40;
-        public int CurrentLevel = 23;
+        public int CurrentLevel = 1;
         public int SafeZoneY = 0;
         public int KeysNeeded = 1;
         public int KeysInHand = 0;
@@ -75,408 +66,6 @@ namespace Test {
         public bool OnTeleport = false;
         public bool HardMode = false;
 
-        //Properties:
-        const bool isMultiUser = false;
-
-        //Sign In and Services:
-        public static XboxLiveUser xboxUser;
-        private static User windowsUser;
-        private static XboxLiveContext xboxLiveContext;
-        private static bool currentlyAttemptingSignIn;
-
-        //Stats Manager:
-        private static StatisticManager StatsManager = null;
-
-        //Storage:
-        private static GameSaveProvider saveProvider;
-
-        //Trial mode:
-        private static StoreContext context = null;
-        private static StoreAppLicense appLicense = null;
-
-        public static bool SigningIn { get { return currentlyAttemptingSignIn; } }
-
-        public static async void SignIn()
-        {
-            SignIn(Windows.ApplicationModel.Core.CoreApplication.GetCurrentView().CoreWindow.Dispatcher);
-        }
-
-        public static async void SignIn(object coreDispatcher)
-        {
-            //If we're already trying to sign in, return:
-            if (currentlyAttemptingSignIn)
-                return;
-
-            currentlyAttemptingSignIn = true;
-
-            if (isMultiUser == true)
-            {
-                //If someone else is signed in, sign them out:
-                SignOutUser();
-
-                //Bring up an account picker so the user can pick what profile he/she wants to play as:
-                UserPicker picker = new UserPicker();
-                picker.AllowGuestAccounts = false;
-
-                try
-                {
-                    windowsUser = await picker.PickSingleUserAsync();
-                }
-                catch
-                {
-                    windowsUser = null;
-                    currentlyAttemptingSignIn = false;
-                    return;
-                }
-
-                //Check to see if no user was selected or the player exited out of the account picker:
-                if (windowsUser == null)
-                {
-                    currentlyAttemptingSignIn = false;
-                    return;
-                }
-
-                //Make a new XboxLiveUser with the Windows User:
-                xboxUser = new XboxLiveUser(windowsUser);
-            }
-            else
-                xboxUser = new XboxLiveUser();
-
-            if (!xboxUser.IsSignedIn)
-            {
-                //Silently sign in:
-                try
-                {
-                    await xboxUser.SignInSilentlyAsync(coreDispatcher);
-                }
-                catch (Exception ex)
-                {
-                    string text = ex.Message;
-                }
-            }
-
-            //If we're unable to sign in silently, sign in normally:
-            if (!xboxUser.IsSignedIn)
-            {
-                try
-                {
-                    await xboxUser.SignInAsync(coreDispatcher);
-                }
-                catch (Exception ex)
-                {
-                    string text = ex.Message;
-                }
-            }
-
-            //If the user is signed in, create the variables we need to use services:
-            if (xboxUser.IsSignedIn)
-            {
-                try
-                {
-                    //Create our new XboxLiveContext and StatsManager:
-                    xboxLiveContext = new XboxLiveContext(xboxUser);
-                    StatsManager = StatisticManager.SingletonInstance;
-                    StatsManager.AddLocalUser(xboxUser);
-                    StatsManager.DoWork();
-
-                    //Initialize our storage for saving and loading:
-                    await InitializeStorage();
-                }
-                catch
-                {
-
-                }
-
-                //Hook up the function that gets called when the user signs out:
-                XboxLiveUser.SignOutCompleted += SignOutCompleted;
-
-                //Load the license information associated with this user:
-                InitializeLicense();
-            }
-
-            currentlyAttemptingSignIn = false;
-        }
-
-
-        private static void SignOutCompleted(object sender, SignOutCompletedEventArgs e)
-        {
-            SignOutUser();
-        }
-
-        private static void SignOutUser()
-        {
-            if (StatsManager != null)
-            {
-                StatsManager.RequestFlushToService(xboxUser);
-                StatsManager.DoWork();
-                StatsManager.RemoveLocalUser(xboxUser);
-                StatsManager.DoWork();
-                StatsManager = null;
-            }
-
-            xboxUser = null;
-            xboxLiveContext = null;
-            saveProvider = null;
-        }
-
-        private static async Task<GameSaveErrorStatus> InitializeStorage()
-        {
-            if (xboxLiveContext == null)
-                return GameSaveErrorStatus.UserHasNoXboxLiveInfo;
-
-            // Getting a GameSaveProvider requires the Windows user object. It will automatically get the correct
-            // provider for the current Xbox Live user.
-            var users = await User.FindAllAsync();
-
-            if (users.Count > 0)
-            {
-                GameSaveProviderGetResult result = await GameSaveProvider.GetForUserAsync(
-                    users[0], xboxLiveContext.AppConfig.ServiceConfigurationId);
-
-                if (result.Status == GameSaveErrorStatus.Ok)
-                {
-                    saveProvider = result.Value;
-                }
-
-                return result.Status;
-            }
-            else
-            {
-                throw new Exception("No Windows users found when creating save provider.");
-            }
-        }
-
-        /// <summary>
-        /// Call this function to save data (like a user profile) via the ConnectedStorage API.
-        /// You must successfully call SignIn before this function can be used.
-        /// </summary>
-        public static async Task<GameSaveErrorStatus> SaveData(string containerName, string blobName, byte[] data)
-        {
-            if (saveProvider == null)
-                throw new InvalidOperationException("The save system is not initialized.");
-            else if (containerName.Contains(" "))
-                throw new InvalidOperationException("Container name cannot have spaces.");
-
-            GameSaveContainer container = saveProvider.CreateContainer(containerName);
-
-            // To store a value in the container, it needs to be written into a buffer, then stored with
-            // a blob name in a Dictionary.
-            DataWriter writer = new DataWriter();
-            writer.WriteBytes(data);
-            IBuffer dataBuffer = writer.DetachBuffer();
-
-            var updates = new Dictionary<string, IBuffer>();
-            updates.Add(blobName, dataBuffer);
-
-            GameSaveOperationResult result = await container.SubmitUpdatesAsync(updates, null, containerName);
-            return result.Status;
-        }
-
-        /// <summary>
-        /// Call this function to load data (like a user profile) via the ConnectedStorage API.
-        /// You must successfully call SignIn before this function can be used.
-        /// </summary>
-        public static async Task<LoadDataResult> LoadData(string containerName, string blobName)
-        {
-            if (saveProvider == null)
-                throw new InvalidOperationException("The save system is not initialized.");
-            else if (containerName.Contains(" "))
-                throw new InvalidOperationException("Container name cannot have spaces.");
-
-            GameSaveContainer container = saveProvider.CreateContainer(containerName);
-
-            string[] blobsToRead = new string[] { blobName };
-
-            // GetAsync allocates a new Dictionary to hold the retrieved data. You can also use ReadAsync
-            // to provide your own preallocated Dictionary.
-            GameSaveBlobGetResult result = await container.GetAsync(blobsToRead);
-
-            byte[] loadedData = null;
-
-            if (result.Status == GameSaveErrorStatus.Ok)
-            {
-                IBuffer loadedBuffer;
-                result.Value.TryGetValue(blobName, out loadedBuffer);
-
-                if (loadedBuffer == null)
-                {
-                    throw new Exception(String.Format("Didn't find expected blob \"{0}\" in the loaded data.", blobName));
-                }
-
-                DataReader reader = DataReader.FromBuffer(loadedBuffer);
-                loadedData = new byte[reader.UnconsumedBufferLength];
-                reader.ReadBytes(loadedData);
-            }
-
-            return new LoadDataResult(result.Status, loadedData);
-        }
-
-        public static async Task<GameSaveContainerInfoGetResult> GetContainerInfo()
-        {
-            if (saveProvider == null)
-            {
-                throw new InvalidOperationException("The save system is not initialized.");
-            }
-
-            GameSaveContainerInfoQuery query = saveProvider.CreateContainerInfoQuery();
-            return await query.GetContainerInfoAsync();
-        }
-
-        public static async Task<GameSaveErrorStatus> DeleteContainer(string containerName)
-        {
-            if (saveProvider == null)
-            {
-                throw new InvalidOperationException("The save system is not initialized.");
-            }
-
-            GameSaveOperationResult result = await saveProvider.DeleteContainerAsync(containerName);
-            return result.Status;
-        }
-
-        /// <summary>
-        /// Call this function to unlock an achievement. The achievementName must match 
-        /// what you named the achievement in the Dev Center.
-        /// </summary>
-        public static void UnlockAchievement(string achievementName, uint percentComplete)
-        {
-            if (xboxUser == null || xboxUser.IsSignedIn == false)
-                return;
-
-            try
-            {
-                xboxLiveContext.AchievementService.UpdateAchievementAsync(xboxUser.XboxUserId, achievementName, percentComplete);
-            }
-            catch (Exception ex)
-            {
-                string exception = ex.Message;
-            }
-        }
-
-        /// <summary>
-        /// Call this function to set the value of a Featured Stat. The statName must match 
-        /// what you named the Featured Stat in the Dev Center.
-        /// </summary>
-        public static void WriteStatInt(string statName, int value)
-        {
-            if (StatsManager == null || xboxUser == null || xboxUser.IsSignedIn == false)
-                return;
-
-            try
-            {
-                StatsManager.SetStatisticIntegerData(xboxUser, statName, value);
-                StatsManager.DoWork();
-            }
-            catch (Exception ex)
-            {
-                string exception = ex.Message;
-            }
-        }
-
-        /// <summary>
-        /// Call this function to set the value of a Featured Stat. The statName must match 
-        /// what you named the Featured Stat in the Dev Center.
-        /// </summary>
-        public static void WriteStatString(string statName, string value)
-        {
-            if (StatsManager == null || xboxUser == null || xboxUser.IsSignedIn == false)
-                return;
-
-            try
-            {
-                StatsManager.SetStatisticStringData(xboxUser, statName, value);
-                StatsManager.DoWork();
-            }
-            catch (Exception ex)
-            {
-                string exception = ex.Message;
-            }
-        }
-
-        /// <summary>
-        /// Call this function to set the rich presence of the signed in user. The presenceName
-        /// must match what you named the Presence in the Dev Center.
-        /// </summary>
-        public static void SetPresence(string presenceName)
-        {
-            if (xboxUser == null || xboxUser.IsSignedIn == false)
-                return;
-
-            try
-            {
-                PresenceData data = new PresenceData(xboxLiveContext.AppConfig.ServiceConfigurationId, presenceName);
-                xboxLiveContext.PresenceService.SetPresenceAsync(true, data);
-            }
-            catch (Exception ex)
-            {
-            }
-        }
-
-        /// <summary>
-        /// This function gets license for the user... are we in trial mode or full mode?
-        /// </summary>
-        private static async void InitializeLicense()
-        {
-            if (context == null && isMultiUser == true)
-                context = StoreContext.GetForUser(windowsUser);
-            else if (context == null)
-                context = StoreContext.GetDefault();
-
-            appLicense = await context.GetAppLicenseAsync();
-
-            // Register for the licenced changed event.
-            context.OfflineLicensesChanged += context_OfflineLicensesChanged;
-        }
-
-        private async static void context_OfflineLicensesChanged(StoreContext sender, object args)
-        {
-            //Reload the license:
-            appLicense = await context.GetAppLicenseAsync();
-        }
-
-        /// <summary>
-        /// Returns true if the signed in user hasn't purchased the full version of the game
-        /// </summary>
-        public static bool IsTrialMode()
-        {
-            if (appLicense != null && appLicense.IsActive)
-                return appLicense.IsTrial;
-
-            return false;
-        }
-
-        /// <summary>
-        /// Brings up the store page where the user can purchase your game.
-        /// IMPORTANT: This must be called from the UI thread.
-        /// </summary>
-        public static async void ShowMarketplace()
-        {
-            //Get the store product for this game:
-            StoreProductResult product = await context.GetStoreProductForCurrentAppAsync();
-
-            if (product == null || product.Product == null)
-                return; //No product on the store yet.
-
-            StorePurchaseResult result = await context.RequestPurchaseAsync(product.Product.StoreId);
-        }
-
-        /// <summary>
-        /// Call this function when your program exits.
-        /// </summary>
-        public static void ExitCleanUp()
-        {
-            if (xboxUser.IsSignedIn)
-            {
-                StatsManager.RequestFlushToService(xboxUser);
-                StatsManager.DoWork();
-                StatsManager.RemoveLocalUser(xboxUser);
-                StatsManager.DoWork();
-            }
-
-            xboxLiveContext = null;
-            saveProvider = null;
-            xboxUser = null;
-        }
-
         public Game1() {
             _graphics = new GraphicsDeviceManager(this);
             Content.RootDirectory = "Content";
@@ -486,6 +75,8 @@ namespace Test {
 
         protected override void Initialize() {
             Transition(2);
+            MediaPlayer.Volume = 0.5f;
+            SoundEffect.MasterVolume = 0.5f;
             base.Initialize();
         }
 
@@ -537,7 +128,10 @@ namespace Test {
         }
 
         protected override void Update(GameTime gameTime) {
-            if(FadeDir == 0) {
+            MediaPlayer.Volume = 0.1f;
+            SoundEffect.MasterVolume = 0.1f;
+            IsMouseVisible = false;
+            if (FadeDir == 0) {
                 if (GamePad.GetState(PlayerIndex.One).Buttons.Start == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Enter))
                     Transition(0);
                 if (PLayerAniTime == 0 && Rock[0] == 0) {
@@ -2191,50 +1785,26 @@ namespace Test {
         void ChangeOverLevels(string[] Level) {
             for(int i = 0; i< 360; i++)
                 Map[i] = Level[i];
-            /*
             for (int i = 0; i < 360; i++) {
                 switch (Map[i]) {
-                    case 0x15:
-                    case 0x16:
+                    case "0x15":
+                    case "0x16":
                         SpikeNum++;
                         break;
                 }
             }
-            DrawDebug();
-            int j = 10;
-            if (Temp > j) 
-                j = Temp;
-            if (DY + ((FontSize * 15) + (j * FontSize)) + FontSize >= GetScreenHeight()) {
-                while (1) { 
-                    if (DY + ((FontSize * 15) + (j * FontSize)) + FontSize >= GetScreenHeight()) { 
-                        FontSize--; 
-                    } else { 
-                        break; 
-                    } 
-                }
-            } else {
-                while (1) { 
-                    if (DY + ((FontSize * 15) + (j * FontSize)) + FontSize <= GetScreenHeight()) { 
-                        FontSize++; 
-                    } else { 
-                        break; 
-                    } 
-                }
-            }
-            */
             KeysInHand = 0;
             PlayerDir = 3;
             PLayerAniTime = 0;
             KeysNeeded = 1;
             Fence[0] = 0;
-            //HasSpikes = false;
-            //HasEnimes = false;
-            //Spikes[0] = 0;
-            //Enimes[0] = 0;
-            //Enimes[1] = 0;
+            HasSpikes = false;
+            HasEnimes = false;
+            Spikes[0] = 0;
+            Enimes[0] = 0;
+            Enimes[1] = 0;
             x = 40;
             y = 40;
-            //Update();
         }
         
         public void Transition(int position) {
@@ -3554,16 +3124,5 @@ namespace Test {
                 //default: EndScreen(); break;
             }
         }
-    }
-    public struct LoadDataResult // Used to return the results of a LoadData call.
-    {
-        public LoadDataResult(GameSaveErrorStatus statusValue, byte[] dataValue)
-        {
-            Status = statusValue;
-            Data = dataValue;
-        }
-
-        public GameSaveErrorStatus Status;
-        public byte[] Data;
     }
 }
