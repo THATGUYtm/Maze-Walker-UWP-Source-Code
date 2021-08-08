@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework.Media;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Content;
 using System.Collections.Generic;
+using System;
 
 namespace Test {
     public class Game1 : Game {
@@ -21,6 +22,8 @@ namespace Test {
         Texture2D FadeTexture;
         Vector2 PlayerPos;
         Rectangle sourceRectangle;
+        Random rnd = new Random();
+        int TEMP;
         public float DeadZone;
         public int PlayerSpeed;
         public int PlayerDir;
@@ -39,6 +42,7 @@ namespace Test {
         public float FadeAlpha = 0.0f;
         public int FadeDir = 1;
         public int FadeStop = 0;
+        Song LevelMusic;
 
         public Game1() {
             _graphics = new GraphicsDeviceManager(this);
@@ -64,6 +68,22 @@ namespace Test {
             base.Initialize();
         }
 
+        void MediaPlayer_MediaStateChanged(object sender, System.EventArgs e) {
+            int TEMP2 = TEMP;
+            TEMP = rnd.Next(0, 4);
+            while (TEMP2 == TEMP) {
+                TEMP = rnd.Next(0, 4);
+            }
+            switch (TEMP) {
+                case 0: LevelMusic = Content.Load<Song>("LevelThemeOne"); break;
+                case 1: LevelMusic = Content.Load<Song>("LevelThemeTwo"); break;
+                case 2: LevelMusic = Content.Load<Song>("LevelThemeThree"); break;
+                case 3: LevelMusic = Content.Load<Song>("LevelThemeFour"); break;
+                case 4: LevelMusic = Content.Load<Song>("LevelThemeFive"); break;
+            }
+            MediaPlayer.Play(LevelMusic);
+        }
+
         protected override void LoadContent() {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
             targetBatch = new SpriteBatch(GraphicsDevice);
@@ -82,6 +102,17 @@ namespace Test {
             soundEffects.Add(Content.Load<SoundEffect>("MenuSelectSoundEffect"));
             soundEffects.Add(Content.Load<SoundEffect>("SpikeSoundEffect"));
             soundEffects.Add(Content.Load<SoundEffect>("WalkingSoundEffect"));
+            TEMP = rnd.Next(0, 4);
+            switch (TEMP) {
+                case 0: LevelMusic = Content.Load<Song>("LevelThemeOne"); break;
+                case 1: LevelMusic = Content.Load<Song>("LevelThemeTwo"); break;
+                case 2: LevelMusic = Content.Load<Song>("LevelThemeThree"); break;
+                case 3: LevelMusic = Content.Load<Song>("LevelThemeFour"); break;
+                case 4: LevelMusic = Content.Load<Song>("LevelThemeFive"); break;
+            }
+            MediaPlayer.Play(LevelMusic);
+            MediaPlayer.MediaStateChanged += MediaPlayer_MediaStateChanged;
+
         }
 
         protected override void Update(GameTime gameTime) {
@@ -188,6 +219,14 @@ namespace Test {
                                 Rock[1] = x;
                                 Rock[2] = y + 40;
                             }
+                        }
+                    }
+                    if (ButtonsPressed == 0) {
+                        switch (PlayerDir) {
+                            case 0: sourceRectangle = new Rectangle(400, 40, 40, 40); break;
+                            case 1: sourceRectangle = new Rectangle(160, 40, 40, 40); break;
+                            case 2: sourceRectangle = new Rectangle(40, 40, 40, 40); break;
+                            case 3: sourceRectangle = new Rectangle(280, 40, 40, 40); break;
                         }
                     }
                 } else {
@@ -370,6 +409,17 @@ namespace Test {
                     break;*/
             }
         }
+        
+        public string GetHumanReadableTime(TimeSpan timeSpan)
+        {
+            int minutes = timeSpan.Minutes;
+            int seconds = timeSpan.Seconds;
+
+            if (seconds < 10)
+                return minutes + ":0" + seconds;
+            else
+                return minutes + ":" + seconds;
+        }
 
         protected override void Draw(GameTime gameTime){
             GraphicsDevice.SetRenderTarget(target);
@@ -411,6 +461,12 @@ namespace Test {
             }
             if (FadeDir != 0)
                 targetBatch.Draw(LevelTransitionTarget, Vector2.Zero, Color.White * FadeAlpha);
+            
+            TimeSpan time = MediaPlayer.PlayPosition;
+            TimeSpan songTime = LevelMusic.Duration;
+            targetBatch.DrawString(font, LevelMusic.Name, new Vector2(100, 100), Color.Black);
+            targetBatch.DrawString(font, GetHumanReadableTime(time) + " / " + GetHumanReadableTime(songTime), new Vector2(100, 150), Color.Black);
+            
             targetBatch.End();
             base.Draw(gameTime);
         }
