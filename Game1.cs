@@ -55,7 +55,7 @@ namespace Test {
             PlayerSpeed = 3;
             PlayerDir = 3;
             PLayerAniTime = 0;
-            CurrentLevel = 1;
+            CurrentLevel = 3;
             sourceRectangle = new Rectangle(280, 40, 40, 40);
             KeysNeeded = 1;
             KeysInHand = 0;
@@ -103,7 +103,9 @@ namespace Test {
                         } else {
                             if (Map[(y / 2) + ((x / 40) - 2)] == "0x00") {
                                 ButtonsPressed++;
-                                soundEffects[0].Play();
+                                var instance = soundEffects[0].CreateInstance();
+                                instance.Volume = 0.2f;
+                                instance.Play();
                                 PlayerDir = 0;
                                 PLayerAniTime = 1;
                                 Map[(y / 2) + ((x / 40) - 1)] = "0x00";
@@ -126,7 +128,9 @@ namespace Test {
                         } else {
                             if (Map[(((y / 40) - 2) * 20) + (x / 40)] == "0x00") {
                                 ButtonsPressed++;
-                                soundEffects[0].Play();
+                                var instance = soundEffects[0].CreateInstance();
+                                instance.Volume = 0.5f;
+                                instance.Play();
                                 PlayerDir = 1;
                                 PLayerAniTime = 1;
                                 Map[(((y / 40) - 1) * 20) + (x / 40)] = "0x00";
@@ -149,7 +153,9 @@ namespace Test {
                         } else {
                             if (Map[(y / 2) + ((x / 40) + 2)] == "0x00") {
                                 ButtonsPressed++;
-                                soundEffects[0].Play();
+                                var instance = soundEffects[0].CreateInstance();
+                                instance.Volume = 0.5f;
+                                instance.Play();
                                 PlayerDir = 2;
                                 PLayerAniTime = 1;
                                 Map[(y / 2) + ((x / 40) + 1)] = "0x00";
@@ -172,7 +178,9 @@ namespace Test {
                         } else {
                             if (Map[(((y / 40) + 2) * 20) + (x / 40)] == "0x00") {
                                 ButtonsPressed++;
-                                soundEffects[0].Play();
+                                var instance = soundEffects[0].CreateInstance();
+                                instance.Volume = 0.5f;
+                                instance.Play();
                                 PlayerDir = 3;
                                 PLayerAniTime = 1;
                                 Map[(((y / 40) + 1) * 20) + (x / 40)] = "0x00";
