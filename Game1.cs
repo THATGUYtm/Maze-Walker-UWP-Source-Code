@@ -3,46 +3,479 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Media;
 using Microsoft.Xna.Framework.Audio;
-using Microsoft.Xna.Framework.Content;
 using System.Collections.Generic;
 using System;
+using Windows.System;
+using Windows.Storage.Streams;
+using Windows.Services.Store;
+using Windows.Gaming.XboxLive.Storage;
+using Microsoft.Xbox.Services;
+using Microsoft.Xbox.Services.System;
+using Microsoft.Xbox.Services.Presence;
+using Microsoft.Xbox.Services.Statistics.Manager;
+using System.Threading.Tasks;
 
 namespace Test {
     public class Game1 : Game {
-        public static string[] Map = new string[360];
         public static GraphicsDeviceManager _graphics;
+
         private SpriteBatch _spriteBatch;
         private SpriteBatch targetBatch;
         private SpriteBatch LevelTransition;
+
         private RenderTarget2D LevelTransitionTarget;
         private RenderTarget2D target;
+
         private SpriteFont font;
+
         List<SoundEffect> soundEffects;
+
+        Song LevelMusic;
+
         Texture2D Tileset;
         Texture2D FadeTexture;
+
         Vector2 PlayerPos;
-        Rectangle sourceRectangle;
+
+        Rectangle sourceRectangle = new Rectangle(280, 40, 40, 40);
+
         Random rnd = new Random();
-        int TEMP;
-        public float DeadZone;
-        public int PlayerSpeed;
-        public int PlayerDir;
-        public int PLayerAniTime;
-        public int WalkAniTime;
-        public int x;
-        public int y;
-        public int CurrentLevel;
-        public int SafeZoneY;
-        public bool SafeZoneT;
-        public bool SZBP = false;
-        public int[] Fence = new int[10];
-        public int KeysNeeded;
-        public int KeysInHand;
-        public int[] Rock = { 0, 0, 0 };
-        public float FadeAlpha = 0.0f;
+
+        public int TEMP;
+        public int PlayerDir = 3;
+        public int PLayerAniTime = 0;
+        public int WalkAniTime = 0;
+        public int x = 40;
+        public int y = 40;
+        public int CurrentLevel = 23;
+        public int SafeZoneY = 0;
+        public int KeysNeeded = 1;
+        public int KeysInHand = 0;
         public int FadeDir = 1;
         public int FadeStop = 0;
-        Song LevelMusic;
+        public int Deaths = 0;
+        public int TotalDeaths = 0;
+        public int SpikeNum = 0;
+
+        public int[] Fence = new int[10];
+        public int[] Lock = new int[10];
+        public int[] Rock = { 0, 0, 0 };
+        public int[] Spikes = { 0 };
+        public int[] Enimes = new int[120];
+
+        public static string[] Map = new string[360];
+
+        public float DeadZone = 0.2f;
+        public float FadeAlpha = 0.0f;
+
+        public bool SafeZoneT = false;
+        public bool SZBP = false;
+        public bool HasSpikes = false;
+        public bool HasEnimes = false;
+        public bool OnTeleport = false;
+        public bool HardMode = false;
+
+        //Properties:
+        const bool isMultiUser = false;
+
+        //Sign In and Services:
+        public static XboxLiveUser xboxUser;
+        private static User windowsUser;
+        private static XboxLiveContext xboxLiveContext;
+        private static bool currentlyAttemptingSignIn;
+
+        //Stats Manager:
+        private static StatisticManager StatsManager = null;
+
+        //Storage:
+        private static GameSaveProvider saveProvider;
+
+        //Trial mode:
+        private static StoreContext context = null;
+        private static StoreAppLicense appLicense = null;
+
+        public static bool SigningIn { get { return currentlyAttemptingSignIn; } }
+
+        public static async void SignIn()
+        {
+            SignIn(Windows.ApplicationModel.Core.CoreApplication.GetCurrentView().CoreWindow.Dispatcher);
+        }
+
+        public static async void SignIn(object coreDispatcher)
+        {
+            //If we're already trying to sign in, return:
+            if (currentlyAttemptingSignIn)
+                return;
+
+            currentlyAttemptingSignIn = true;
+
+            if (isMultiUser == true)
+            {
+                //If someone else is signed in, sign them out:
+                SignOutUser();
+
+                //Bring up an account picker so the user can pick what profile he/she wants to play as:
+                UserPicker picker = new UserPicker();
+                picker.AllowGuestAccounts = false;
+
+                try
+                {
+                    windowsUser = await picker.PickSingleUserAsync();
+                }
+                catch
+                {
+                    windowsUser = null;
+                    currentlyAttemptingSignIn = false;
+                    return;
+                }
+
+                //Check to see if no user was selected or the player exited out of the account picker:
+                if (windowsUser == null)
+                {
+                    currentlyAttemptingSignIn = false;
+                    return;
+                }
+
+                //Make a new XboxLiveUser with the Windows User:
+                xboxUser = new XboxLiveUser(windowsUser);
+            }
+            else
+                xboxUser = new XboxLiveUser();
+
+            if (!xboxUser.IsSignedIn)
+            {
+                //Silently sign in:
+                try
+                {
+                    await xboxUser.SignInSilentlyAsync(coreDispatcher);
+                }
+                catch (Exception ex)
+                {
+                    string text = ex.Message;
+                }
+            }
+
+            //If we're unable to sign in silently, sign in normally:
+            if (!xboxUser.IsSignedIn)
+            {
+                try
+                {
+                    await xboxUser.SignInAsync(coreDispatcher);
+                }
+                catch (Exception ex)
+                {
+                    string text = ex.Message;
+                }
+            }
+
+            //If the user is signed in, create the variables we need to use services:
+            if (xboxUser.IsSignedIn)
+            {
+                try
+                {
+                    //Create our new XboxLiveContext and StatsManager:
+                    xboxLiveContext = new XboxLiveContext(xboxUser);
+                    StatsManager = StatisticManager.SingletonInstance;
+                    StatsManager.AddLocalUser(xboxUser);
+                    StatsManager.DoWork();
+
+                    //Initialize our storage for saving and loading:
+                    await InitializeStorage();
+                }
+                catch
+                {
+
+                }
+
+                //Hook up the function that gets called when the user signs out:
+                XboxLiveUser.SignOutCompleted += SignOutCompleted;
+
+                //Load the license information associated with this user:
+                InitializeLicense();
+            }
+
+            currentlyAttemptingSignIn = false;
+        }
+
+
+        private static void SignOutCompleted(object sender, SignOutCompletedEventArgs e)
+        {
+            SignOutUser();
+        }
+
+        private static void SignOutUser()
+        {
+            if (StatsManager != null)
+            {
+                StatsManager.RequestFlushToService(xboxUser);
+                StatsManager.DoWork();
+                StatsManager.RemoveLocalUser(xboxUser);
+                StatsManager.DoWork();
+                StatsManager = null;
+            }
+
+            xboxUser = null;
+            xboxLiveContext = null;
+            saveProvider = null;
+        }
+
+        private static async Task<GameSaveErrorStatus> InitializeStorage()
+        {
+            if (xboxLiveContext == null)
+                return GameSaveErrorStatus.UserHasNoXboxLiveInfo;
+
+            // Getting a GameSaveProvider requires the Windows user object. It will automatically get the correct
+            // provider for the current Xbox Live user.
+            var users = await User.FindAllAsync();
+
+            if (users.Count > 0)
+            {
+                GameSaveProviderGetResult result = await GameSaveProvider.GetForUserAsync(
+                    users[0], xboxLiveContext.AppConfig.ServiceConfigurationId);
+
+                if (result.Status == GameSaveErrorStatus.Ok)
+                {
+                    saveProvider = result.Value;
+                }
+
+                return result.Status;
+            }
+            else
+            {
+                throw new Exception("No Windows users found when creating save provider.");
+            }
+        }
+
+        /// <summary>
+        /// Call this function to save data (like a user profile) via the ConnectedStorage API.
+        /// You must successfully call SignIn before this function can be used.
+        /// </summary>
+        public static async Task<GameSaveErrorStatus> SaveData(string containerName, string blobName, byte[] data)
+        {
+            if (saveProvider == null)
+                throw new InvalidOperationException("The save system is not initialized.");
+            else if (containerName.Contains(" "))
+                throw new InvalidOperationException("Container name cannot have spaces.");
+
+            GameSaveContainer container = saveProvider.CreateContainer(containerName);
+
+            // To store a value in the container, it needs to be written into a buffer, then stored with
+            // a blob name in a Dictionary.
+            DataWriter writer = new DataWriter();
+            writer.WriteBytes(data);
+            IBuffer dataBuffer = writer.DetachBuffer();
+
+            var updates = new Dictionary<string, IBuffer>();
+            updates.Add(blobName, dataBuffer);
+
+            GameSaveOperationResult result = await container.SubmitUpdatesAsync(updates, null, containerName);
+            return result.Status;
+        }
+
+        /// <summary>
+        /// Call this function to load data (like a user profile) via the ConnectedStorage API.
+        /// You must successfully call SignIn before this function can be used.
+        /// </summary>
+        public static async Task<LoadDataResult> LoadData(string containerName, string blobName)
+        {
+            if (saveProvider == null)
+                throw new InvalidOperationException("The save system is not initialized.");
+            else if (containerName.Contains(" "))
+                throw new InvalidOperationException("Container name cannot have spaces.");
+
+            GameSaveContainer container = saveProvider.CreateContainer(containerName);
+
+            string[] blobsToRead = new string[] { blobName };
+
+            // GetAsync allocates a new Dictionary to hold the retrieved data. You can also use ReadAsync
+            // to provide your own preallocated Dictionary.
+            GameSaveBlobGetResult result = await container.GetAsync(blobsToRead);
+
+            byte[] loadedData = null;
+
+            if (result.Status == GameSaveErrorStatus.Ok)
+            {
+                IBuffer loadedBuffer;
+                result.Value.TryGetValue(blobName, out loadedBuffer);
+
+                if (loadedBuffer == null)
+                {
+                    throw new Exception(String.Format("Didn't find expected blob \"{0}\" in the loaded data.", blobName));
+                }
+
+                DataReader reader = DataReader.FromBuffer(loadedBuffer);
+                loadedData = new byte[reader.UnconsumedBufferLength];
+                reader.ReadBytes(loadedData);
+            }
+
+            return new LoadDataResult(result.Status, loadedData);
+        }
+
+        public static async Task<GameSaveContainerInfoGetResult> GetContainerInfo()
+        {
+            if (saveProvider == null)
+            {
+                throw new InvalidOperationException("The save system is not initialized.");
+            }
+
+            GameSaveContainerInfoQuery query = saveProvider.CreateContainerInfoQuery();
+            return await query.GetContainerInfoAsync();
+        }
+
+        public static async Task<GameSaveErrorStatus> DeleteContainer(string containerName)
+        {
+            if (saveProvider == null)
+            {
+                throw new InvalidOperationException("The save system is not initialized.");
+            }
+
+            GameSaveOperationResult result = await saveProvider.DeleteContainerAsync(containerName);
+            return result.Status;
+        }
+
+        /// <summary>
+        /// Call this function to unlock an achievement. The achievementName must match 
+        /// what you named the achievement in the Dev Center.
+        /// </summary>
+        public static void UnlockAchievement(string achievementName, uint percentComplete)
+        {
+            if (xboxUser == null || xboxUser.IsSignedIn == false)
+                return;
+
+            try
+            {
+                xboxLiveContext.AchievementService.UpdateAchievementAsync(xboxUser.XboxUserId, achievementName, percentComplete);
+            }
+            catch (Exception ex)
+            {
+                string exception = ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// Call this function to set the value of a Featured Stat. The statName must match 
+        /// what you named the Featured Stat in the Dev Center.
+        /// </summary>
+        public static void WriteStatInt(string statName, int value)
+        {
+            if (StatsManager == null || xboxUser == null || xboxUser.IsSignedIn == false)
+                return;
+
+            try
+            {
+                StatsManager.SetStatisticIntegerData(xboxUser, statName, value);
+                StatsManager.DoWork();
+            }
+            catch (Exception ex)
+            {
+                string exception = ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// Call this function to set the value of a Featured Stat. The statName must match 
+        /// what you named the Featured Stat in the Dev Center.
+        /// </summary>
+        public static void WriteStatString(string statName, string value)
+        {
+            if (StatsManager == null || xboxUser == null || xboxUser.IsSignedIn == false)
+                return;
+
+            try
+            {
+                StatsManager.SetStatisticStringData(xboxUser, statName, value);
+                StatsManager.DoWork();
+            }
+            catch (Exception ex)
+            {
+                string exception = ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// Call this function to set the rich presence of the signed in user. The presenceName
+        /// must match what you named the Presence in the Dev Center.
+        /// </summary>
+        public static void SetPresence(string presenceName)
+        {
+            if (xboxUser == null || xboxUser.IsSignedIn == false)
+                return;
+
+            try
+            {
+                PresenceData data = new PresenceData(xboxLiveContext.AppConfig.ServiceConfigurationId, presenceName);
+                xboxLiveContext.PresenceService.SetPresenceAsync(true, data);
+            }
+            catch (Exception ex)
+            {
+            }
+        }
+
+        /// <summary>
+        /// This function gets license for the user... are we in trial mode or full mode?
+        /// </summary>
+        private static async void InitializeLicense()
+        {
+            if (context == null && isMultiUser == true)
+                context = StoreContext.GetForUser(windowsUser);
+            else if (context == null)
+                context = StoreContext.GetDefault();
+
+            appLicense = await context.GetAppLicenseAsync();
+
+            // Register for the licenced changed event.
+            context.OfflineLicensesChanged += context_OfflineLicensesChanged;
+        }
+
+        private async static void context_OfflineLicensesChanged(StoreContext sender, object args)
+        {
+            //Reload the license:
+            appLicense = await context.GetAppLicenseAsync();
+        }
+
+        /// <summary>
+        /// Returns true if the signed in user hasn't purchased the full version of the game
+        /// </summary>
+        public static bool IsTrialMode()
+        {
+            if (appLicense != null && appLicense.IsActive)
+                return appLicense.IsTrial;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Brings up the store page where the user can purchase your game.
+        /// IMPORTANT: This must be called from the UI thread.
+        /// </summary>
+        public static async void ShowMarketplace()
+        {
+            //Get the store product for this game:
+            StoreProductResult product = await context.GetStoreProductForCurrentAppAsync();
+
+            if (product == null || product.Product == null)
+                return; //No product on the store yet.
+
+            StorePurchaseResult result = await context.RequestPurchaseAsync(product.Product.StoreId);
+        }
+
+        /// <summary>
+        /// Call this function when your program exits.
+        /// </summary>
+        public static void ExitCleanUp()
+        {
+            if (xboxUser.IsSignedIn)
+            {
+                StatsManager.RequestFlushToService(xboxUser);
+                StatsManager.DoWork();
+                StatsManager.RemoveLocalUser(xboxUser);
+                StatsManager.DoWork();
+            }
+
+            xboxLiveContext = null;
+            saveProvider = null;
+            xboxUser = null;
+        }
 
         public Game1() {
             _graphics = new GraphicsDeviceManager(this);
@@ -52,18 +485,6 @@ namespace Test {
         }
 
         protected override void Initialize() {
-            x = 40;
-            y = 40;
-            SafeZoneY = 0;
-            DeadZone = 0.2f;
-            PlayerSpeed = 3;
-            PlayerDir = 3;
-            PLayerAniTime = 0;
-            CurrentLevel = 3;
-            sourceRectangle = new Rectangle(280, 40, 40, 40);
-            KeysNeeded = 1;
-            KeysInHand = 0;
-            WalkAniTime = 0;
             Transition(2);
             base.Initialize();
         }
@@ -228,6 +649,7 @@ namespace Test {
                             case 2: sourceRectangle = new Rectangle(40, 40, 40, 40); break;
                             case 3: sourceRectangle = new Rectangle(280, 40, 40, 40); break;
                         }
+                        PostionCheck();
                     }
                 } else {
                     if (Rock[0] == 0) {
@@ -282,6 +704,71 @@ namespace Test {
                         SafeZoneY--;
                 }
             }
+            if (HasEnimes == true) {
+                Enimes[0]++;
+                if (Enimes[0] >= 45 && Rock[0] != 1) {
+                    soundEffects[1].Play();
+                    Enimes[0] = 0;
+                    for (int i = 2; i < Enimes[1] + 2; i++) {
+                        switch (Map[Enimes[i]]) {
+                            case "0x17":
+                                if (Map[Enimes[i] - 1] == "0x00") {
+                                    Map[Enimes[i]] = "0x00";
+                                    Map[Enimes[i] - 1] = "0x17";
+                                    Enimes[i] -= 1;
+                                } else
+                                    Map[Enimes[i]] = "0x19";
+                                break;
+                            case "0x18":
+                                if (Map[Enimes[i] - 20] == "0x00") {
+                                    Map[Enimes[i]] = "0x00";
+                                    Map[Enimes[i] - 20] = "0x18";
+                                    Enimes[i] -= 20;
+                                } else
+                                    Map[Enimes[i]] = "0x1A";
+                                break;
+                            case "0x19":
+                                if (Map[Enimes[i] + 1] == "0x00") {
+                                    Map[Enimes[i]] = "0x00";
+                                    Map[Enimes[i] + 1] = "0x19";
+                                    Enimes[i] += 1;
+                                } else
+                                    Map[Enimes[i]] = "0x17";
+                                break;
+                            case "0x1A":
+                                if (Map[Enimes[i] + 20] == "0x00"){
+                                    Map[Enimes[i]] = "0x00";
+                                    Map[Enimes[i] + 20] = "0x1A";
+                                    Enimes[i] += 20;
+                                } else
+                                    Map[Enimes[i]] = "0x18";
+                                break;
+                        }
+                    }
+                }
+            }
+            if (HasSpikes == true) {
+                if (Spikes[0] == 160) {
+                    soundEffects[7].Play();
+                    Spikes[0] = 0;
+                    SpikeNum = 0;
+                    for (int i = 0; i < 339; i++) {
+                        switch (Map[i]) {
+                            case "0x15":
+                                SpikeNum++;
+                                Map[i] = "0x16";
+                                break;
+                            case "0x16":
+                                SpikeNum++;
+                                Map[i] = "0x15";
+                                break;
+                        }
+                    }
+                }
+                if(FadeDir == 0)
+                    Spikes[0]++;
+            } else
+                SpikeNum = 0;
             base.Update(gameTime);
         }
 
@@ -324,35 +811,29 @@ namespace Test {
                 }
             }
         }
+
         public void PostionCheck() {
             switch (Map[((y / 40) * 20) + (x / 40)]) {
                 case "0x01":
                     soundEffects[3].Play();
-                    //Draw();
                     CurrentLevel++;
                     Transition(0);
                     break;
                 case "0x16": case "0x17": case "0x18": case "0x19": case "0x1A":
-                    /* if (HardMode == true) {
-                        for (i = 0; i < 5; i++) {
-                            Draw();
-                        }
+                    if (HardMode == true) {
                         CurrentLevel = 0;
                         Deaths = 0;
                         TotalDeaths++;
-                        Timer[0] = 0;
-                        Timer[1] = 0;
-                        Timer[2] = 0;
-                        Timer[3] = 0;
-                        BeginGame();
-                    } else { */
-                        //Deaths++;
-                        //TotalDeaths++;
-                        //for (i = 0; i < 5; i++){
-                        //    Draw();
-                        //}
-                        SwitchLevel();
-                    //}
+                        //Timer[0] = 0;
+                        //Timer[1] = 0;
+                        //Timer[2] = 0;
+                        //Timer[3] = 0;
+                        Transition(1);
+                    } else {
+                        Deaths++;
+                        TotalDeaths++;
+                        Transition(0);
+                    }
                     break;
                 case "0x04":
                     soundEffects[2].Play();
@@ -378,26 +859,25 @@ namespace Test {
                                     break;
                                 }
                             }
-                        }/*else{
+                        }else{
                             for (int i = 0; i < Fence[0]; i++) {
                                 if (((y / 40) * 20) + (x / 40) == Lock[i]) {
-                                    Map[Lock[i]] = 0x00;
-                                    Map[Fence[i + 1]] = 0x00;
+                                    Map[Lock[i]] = "0x00";
+                                    Map[Fence[i + 1]] = "0x00";
                                 }
                             }
-                        }*/
+                        }
                     }
                     break;
-                /*case 0x46:
+                case "0x46":
                     if (OnTeleport == false) {
                         OnTeleport = true;
-                        SoundEffects[2].Play();
-                        for (i = 0; i < 360; i++) {
-                            if (i != ((Player[1] / 40) * 20) + (Player[0] / 40)) {
-                                if (Map[i] == 0x46) {
-                                    Player[0] = (i % 20) * 40;
-                                    Player[1] = (i / 20) * 40;
-                                    Draw();
+                        soundEffects[2].Play();
+                        for (int i = 0; i < 339; i++) {
+                            if (i != (y / 2) + (x / 40)) {
+                                if (Map[i] == "0x46") {
+                                    x = (i % 20) * 40;
+                                    y = (i / 20) * 40;
                                     break;
                                 }
                             }
@@ -406,7 +886,7 @@ namespace Test {
                     break;
                 default:
                     OnTeleport = false;
-                    break;*/
+                    break;
             }
         }
         
@@ -1776,12 +2256,6 @@ namespace Test {
         }
 
         public void SwitchLevel() {
-            /*
-            if (CurrentLevel <= NumberOFLevels)
-            {
-                TransistionScreen();
-            }
-            */
             switch (CurrentLevel) {
                 case 1: ChangeOverLevels(LevelOne); break;
                 case 2: ChangeOverLevels(LevelTwo); break;
@@ -1791,12 +2265,11 @@ namespace Test {
                 case 6: ChangeOverLevels(LevelSix); Fence[0] = 1; break;
                 case 7: ChangeOverLevels(LevelSeven); KeysNeeded = 2; Fence[0] = 1; break;
                 case 8: ChangeOverLevels(LevelEight); Fence[0] = 1; break;
-                /*
                 case 9: ChangeOverLevels(LevelNine); KeysNeeded = 3; Fence[0] = 1; HasSpikes = true; break;
                 case 10:
                     ChangeOverLevels(LevelTen);
-                    Player[0] = 360;
-                    Player[1] = 640;
+                    x = 360;
+                    y = 640;
                     KeysNeeded = 3;
                     Fence[0] = 2;
                     Fence[1] = 281;
@@ -1813,8 +2286,8 @@ namespace Test {
                     break;
                 case 11:
                     ChangeOverLevels(LevelEleven);
-                    Player[0] = 400;
-                    Player[1] = 80;
+                    x = 400;
+                    y = 80;
                     KeysNeeded = 3;
                     Fence[0] = 3;
                     Fence[1] = 81;
@@ -1835,7 +2308,7 @@ namespace Test {
                     break;
                 case 12:
                     ChangeOverLevels(LevelTwelve);
-                    Player[0] = 440;
+                    x = 440;
                     KeysNeeded = 3;
                     Fence[0] = 2;
                     Fence[1] = 22;
@@ -1852,8 +2325,8 @@ namespace Test {
                     break;
                 case 13:
                     ChangeOverLevels(LevelThirteen);
-                    Player[0] = 200;
-                    Player[1] = 200;
+                    x = 200;
+                    y = 200;
                     KeysNeeded = 2;
                     Fence[0] = 3;
                     Fence[1] = 178;
@@ -1880,8 +2353,8 @@ namespace Test {
                     break;
                 case 14:
                     ChangeOverLevels(LevelFourteen);
-                    Player[0] = 400;
-                    Player[1] = 360;
+                    x = 400;
+                    y = 360;
                     KeysNeeded = 1;
                     Fence[0] = 1;
                     HasSpikes = true;
@@ -1893,8 +2366,8 @@ namespace Test {
                     break;
                 case 15:
                     ChangeOverLevels(LevelFifteen);
-                    Player[0] = 480;
-                    Player[1] = 520;
+                    x = 480;
+                    y = 520;
                     KeysNeeded = 2;
                     Fence[0] = 2;
                     Fence[1] = 147;
@@ -1917,8 +2390,8 @@ namespace Test {
                     break;
                 case 16:
                     ChangeOverLevels(LevelSixteen);
-                    Player[0] = 80;
-                    Player[1] = 320;
+                    x = 80;
+                    y = 320;
                     KeysNeeded = 1;
                     Fence[0] = 4;
                     Fence[1] = 158;
@@ -1944,8 +2417,8 @@ namespace Test {
                     break;
                 case 17:
                     ChangeOverLevels(LevelSeventeen);
-                    Player[0] = 720;
-                    Player[1] = 320;
+                    x = 720;
+                    y = 320;
                     KeysNeeded = 1;
                     HasEnimes = true;
                     Enimes[1] = 41;
@@ -1991,7 +2464,7 @@ namespace Test {
                     Enimes[41] = 24;
                     Enimes[42] = 25;
                     break;
-                case 18: ChangeOverLevels(LevelEighteen); Player[0] = 720; Player[1] = 600; break;
+                case 18: ChangeOverLevels(LevelEighteen); x = 720; y = 600; break;
                 case 19:
                     ChangeOverLevels(LevelNineteen);
                     KeysNeeded = 1;
@@ -2061,7 +2534,7 @@ namespace Test {
                     break;
                 case 21:
                     ChangeOverLevels(LevelTwentyone);
-                    Player[1] = 640;
+                    y = 640;
                     KeysNeeded = 4;
                     Fence[0] = 2;
                     Fence[1] = 258;
@@ -2085,7 +2558,7 @@ namespace Test {
                     break;
                 case 22:
                     ChangeOverLevels(LevelTwentytwo);
-                    Player[0] = 720;
+                    x = 720;
                     KeysNeeded = 4;
                     Fence[0] = 3;
                     Fence[1] = 323;
@@ -2119,8 +2592,8 @@ namespace Test {
                     break;
                 case 23:
                     ChangeOverLevels(LevelTwentythree);
-                    Player[0] = 240;
-                    Player[1] = 480;
+                    x = 240;
+                    y = 480;
                     KeysNeeded = 3;
                     Fence[0] = 1;
                     HasSpikes = true;
@@ -2250,8 +2723,8 @@ namespace Test {
                     break;
                 case 27:
                     ChangeOverLevels(LevelTwentyseven);
-                    Player[0] = 80;
-                    Player[1] = 640;
+                    x = 80;
+                    y = 640;
                     KeysNeeded = 20;
                     Fence[0] = 4;
                     Fence[1] = 70;
@@ -2277,8 +2750,8 @@ namespace Test {
                     break;
                 case 28:
                     ChangeOverLevels(LevelTwentyeight);
-                    Player[0] = 400;
-                    Player[1] = 320;
+                    x = 400;
+                    y = 320;
                     KeysNeeded = 6;
                     Fence[0] = 3;
                     Fence[1] = 97;
@@ -2328,8 +2801,8 @@ namespace Test {
                     break;
                 case 31:
                     ChangeOverLevels(LevelThirtyone);
-                    Player[0] = 520;
-                    Player[1] = 600;
+                    x = 520;
+                    y = 600;
                     KeysNeeded = 3;
                     Fence[0] = 2;
                     Fence[1] = 270;
@@ -2352,8 +2825,8 @@ namespace Test {
                     break;
                 case 32:
                     ChangeOverLevels(LevelThirtytwo);
-                    Player[0] = 360;
-                    Player[1] = 640;
+                    x = 360;
+                    y = 640;
                     KeysNeeded = 3;
                     HasSpikes = true;
                     HasEnimes = true;
@@ -2473,8 +2946,8 @@ namespace Test {
                     break;
                 case 33:
                     ChangeOverLevels(LevelThirtythree);
-                    Player[0] = 40;
-                    Player[1] = 80;
+                    x = 40;
+                    y = 80;
                     KeysNeeded = 2;
                     Fence[0] = 2;
                     Fence[1] = 213;
@@ -2585,8 +3058,8 @@ namespace Test {
                     break;
                 case 37:
                     ChangeOverLevels(LevelThirtyseven);
-                    Player[0] = 40;
-                    Player[1] = 640;
+                    x = 40;
+                    y = 640;
                     KeysNeeded = 54;
                     Fence[0] = 2;
                     Fence[1] = 161;
@@ -2717,8 +3190,8 @@ namespace Test {
                     break;
                 case 42:
                     ChangeOverLevels(LevelFourtytwo);
-                    Player[0] = 80;
-                    Player[1] = 40;
+                    x = 80;
+                    y = 40;
                     KeysNeeded = 6;
                     HasSpikes = true;
                     HasEnimes = true;
@@ -2784,7 +3257,7 @@ namespace Test {
                 case 45:
                     ChangeOverLevels(LevelFourtyfive);
                     KeysNeeded = 6;
-                    Player[1] = 320;
+                    y = 320;
                     Fence[0] = 2;
                     Fence[1] = 202;
                     Fence[2] = 157;
@@ -2810,7 +3283,7 @@ namespace Test {
                     break;
                 case 47:
                     ChangeOverLevels(LevelFourtyseven);
-                    Player[1] = 640;
+                    y = 640;
                     KeysNeeded = 4;
                     HasEnimes = true;
                     HasSpikes = true;
@@ -2843,8 +3316,8 @@ namespace Test {
                     break;
                 case 49:
                     ChangeOverLevels(LevelFourtynine);
-                    Player[0] = 720;
-                    Player[1] = 200;
+                    x = 720;
+                    y = 200;
                     KeysNeeded = 4;
                     Fence[0] = 1;
                     HasEnimes = true;
@@ -2878,7 +3351,7 @@ namespace Test {
                 case 51: ChangeOverLevels(LevelFiftyone); HasSpikes = true; break;
                 case 52:
                     ChangeOverLevels(LevelFiftytwo);
-                    Player[1] = 320;
+                    y = 320;
                     KeysNeeded = 4;
                     HasEnimes = true;
                     Enimes[1] = 14;
@@ -2911,8 +3384,8 @@ namespace Test {
                     break;
                 case 90:
                     ChangeOverLevels(LevelNinty);
-                    Player[0] = 120;
-                    Player[1] = 160;
+                    x = 120;
+                    y = 160;
                     KeysNeeded = 2;
                     Fence[0] = 3;
                     Fence[1] = 71;
@@ -2943,8 +3416,8 @@ namespace Test {
                     break;
                 case 91:
                     ChangeOverLevels(LevelNintyone);
-                    Player[0] = 720;
-                    Player[1] = 640;
+                    x = 720;
+                    y = 640;
                     HasEnimes = true;
                     HasSpikes = true;
                     Enimes[1] = 25;
@@ -2976,7 +3449,7 @@ namespace Test {
                     break;
                 case 92:
                     ChangeOverLevels(LevelNintytwo);
-                    Player[0] = 80;
+                    x = 80;
                     KeysNeeded = 4;
                     Fence[0] = 4;
                     Fence[1] = 30;
@@ -3026,8 +3499,8 @@ namespace Test {
                     break;
                 case 93:
                     ChangeOverLevels(LevelNintythree);
-                    Player[0] = 80;
-                    Player[1] = 600;
+                    x = 80;
+                    y = 600;
                     KeysNeeded = 6;
                     Fence[0] = 9;
                     Fence[1] = 193;
@@ -3078,9 +3551,19 @@ namespace Test {
                     Enimes[26] = 174;
                     Enimes[27] = 157;
                     break;
-                default: EndScreen(); break;
-                */
+                //default: EndScreen(); break;
             }
         }
+    }
+    public struct LoadDataResult // Used to return the results of a LoadData call.
+    {
+        public LoadDataResult(GameSaveErrorStatus statusValue, byte[] dataValue)
+        {
+            Status = statusValue;
+            Data = dataValue;
+        }
+
+        public GameSaveErrorStatus Status;
+        public byte[] Data;
     }
 }
