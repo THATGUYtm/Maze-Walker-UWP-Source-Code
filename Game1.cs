@@ -410,17 +410,6 @@ namespace Test {
             }
         }
         
-        public string GetHumanReadableTime(TimeSpan timeSpan)
-        {
-            int minutes = timeSpan.Minutes;
-            int seconds = timeSpan.Seconds;
-
-            if (seconds < 10)
-                return minutes + ":0" + seconds;
-            else
-                return minutes + ":" + seconds;
-        }
-
         protected override void Draw(GameTime gameTime){
             GraphicsDevice.SetRenderTarget(target);
             GraphicsDevice.Clear(Color.CornflowerBlue);
@@ -460,13 +449,7 @@ namespace Test {
                     Transition(1);
             }
             if (FadeDir != 0)
-                targetBatch.Draw(LevelTransitionTarget, Vector2.Zero, Color.White * FadeAlpha);
-            
-            TimeSpan time = MediaPlayer.PlayPosition;
-            TimeSpan songTime = LevelMusic.Duration;
-            targetBatch.DrawString(font, LevelMusic.Name, new Vector2(100, 100), Color.Black);
-            targetBatch.DrawString(font, GetHumanReadableTime(time) + " / " + GetHumanReadableTime(songTime), new Vector2(100, 150), Color.Black);
-            
+                targetBatch.Draw(LevelTransitionTarget, Vector2.Zero, Color.White * FadeAlpha);            
             targetBatch.End();
             base.Draw(gameTime);
         }
