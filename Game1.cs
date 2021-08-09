@@ -5,38 +5,10 @@ using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Media;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.IO.IsolatedStorage;
-using System.Xml;
-using System.Xml.Serialization;
 
 namespace Test
 {
     public class Game1 : Game {
-        //
-        private void SerializeElement(string filename)
-        {
-            XmlSerializer ser = new XmlSerializer(typeof(XmlElement));
-            XmlElement myElement = new XmlDocument().CreateElement("MyElement", "ns");
-            myElement.InnerText = "Hello World";
-            TextWriter writer = new StreamWriter(filename, false);
-            ser.Serialize(writer, myElement);
-            writer.Close();
-        }
-
-        private void SerializeNode(string filename)
-        {
-            XmlSerializer ser = new XmlSerializer(typeof(XmlNode));
-            XmlNode myNode = new XmlDocument().
-            CreateNode(XmlNodeType.Element, "MyNode", "ns");
-            myNode.InnerText = "Hello Node";
-            TextWriter writer = new StreamWriter(filename);
-            ser.Serialize(writer, myNode);
-            writer.Close();
-        }
-
-        //
-
         public static GraphicsDeviceManager _graphics;
 
         private SpriteBatch _spriteBatch;
@@ -68,7 +40,7 @@ namespace Test
         public int WalkAniTime = 0;
         public int x = 40;
         public int y = 40;
-        public int CurrentLevel = 0;
+        public static int CurrentLevel = 1;
         public int SafeZoneY = 0;
         public int KeysNeeded = 1;
         public int KeysInHand = 0;
@@ -84,6 +56,8 @@ namespace Test
         public int[] Spikes = { 0 };
         public int[] Enimes = new int[120];
         public int[] Timer = { 0, 0, 0 };
+
+        public float[] FPSAVG = new float[10];
 
         public static string[] Map = new string[360];
 
@@ -101,6 +75,8 @@ namespace Test
         public Game1() {
             _graphics = new GraphicsDeviceManager(this);
             Content.RootDirectory = "Content";
+            _graphics.SynchronizeWithVerticalRetrace = false;
+            IsFixedTimeStep = false;
             IsMouseVisible = false;
             soundEffects = new List<SoundEffect>();
         }
@@ -109,8 +85,6 @@ namespace Test
             Transition(2);
             MediaPlayer.Volume = 0.5f;
             SoundEffect.MasterVolume = 0.5f;
-            SerializeElement("C:/Users/Zachary/OneDrive/Desktop/TEST.xml");
-            SerializeNode("C:/Users/Zachary/OneDrive/Desktop/TEST1.xml");
             base.Initialize();
         }
 
@@ -597,6 +571,25 @@ namespace Test
             else
                 TTEMP3 = Timer[2].ToString();
             targetBatch.DrawString(font, TTEMP3 + ":" + TTEMP2 + ":" + TTEMP1, new Vector2(5, 0), Color.White, 0f, Vector2.Zero, 0.5f, SpriteEffects.None, 0f);
+            var deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+            int FPS = (int)(1 / deltaTime);
+
+            FPSAVG[9] = FPSAVG[8];
+            FPSAVG[8] = FPSAVG[7];
+            FPSAVG[7] = FPSAVG[6];
+            FPSAVG[6] = FPSAVG[5];
+            FPSAVG[5] = FPSAVG[4];
+            FPSAVG[4] = FPSAVG[3];
+            FPSAVG[3] = FPSAVG[2];
+            FPSAVG[2] = FPSAVG[1];
+            FPSAVG[1] = FPSAVG[0];
+            FPSAVG[0] = FPS;
+
+            float AVGFPS = (FPSAVG[0] + FPSAVG[1] + FPSAVG[2] + FPSAVG[3] + FPSAVG[4] + FPSAVG[5] + FPSAVG[6] + FPSAVG[7] + FPSAVG[8] + FPSAVG[9]) / 10;
+            int FPSTEMP = (int)AVGFPS;
+
+            targetBatch.DrawString(font, FPSTEMP.ToString(), new Vector2(100, 100), Color.White, 0f, Vector2.Zero, 0.5f, SpriteEffects.None, 0f);
+
             if (FadeDir != 0)
                 targetBatch.Draw(LevelTransitionTarget, Vector2.Zero, Color.White * FadeAlpha);
             targetBatch.End();
