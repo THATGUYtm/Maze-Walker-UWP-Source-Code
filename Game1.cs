@@ -1,13 +1,42 @@
 ﻿using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Media;
-using Microsoft.Xna.Framework.Audio;
-using System.Collections.Generic;
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.IsolatedStorage;
+using System.Xml;
+using System.Xml.Serialization;
 
-namespace Test {
+namespace Test
+{
     public class Game1 : Game {
+        //
+        private void SerializeElement(string filename)
+        {
+            XmlSerializer ser = new XmlSerializer(typeof(XmlElement));
+            XmlElement myElement = new XmlDocument().CreateElement("MyElement", "ns");
+            myElement.InnerText = "Hello World";
+            TextWriter writer = new StreamWriter(filename, false);
+            ser.Serialize(writer, myElement);
+            writer.Close();
+        }
+
+        private void SerializeNode(string filename)
+        {
+            XmlSerializer ser = new XmlSerializer(typeof(XmlNode));
+            XmlNode myNode = new XmlDocument().
+            CreateNode(XmlNodeType.Element, "MyNode", "ns");
+            myNode.InnerText = "Hello Node";
+            TextWriter writer = new StreamWriter(filename);
+            ser.Serialize(writer, myNode);
+            writer.Close();
+        }
+
+        //
+
         public static GraphicsDeviceManager _graphics;
 
         private SpriteBatch _spriteBatch;
@@ -24,7 +53,6 @@ namespace Test {
         Song LevelMusic;
 
         Texture2D Tileset;
-        Texture2D FadeTexture;
 
         Vector2 PlayerPos;
 
@@ -32,13 +60,15 @@ namespace Test {
 
         Random rnd = new Random();
 
+        float Time = 0.0f;
+
         public int TEMP;
         public int PlayerDir = 3;
         public int PLayerAniTime = 0;
         public int WalkAniTime = 0;
         public int x = 40;
         public int y = 40;
-        public int CurrentLevel = 1;
+        public int CurrentLevel = 0;
         public int SafeZoneY = 0;
         public int KeysNeeded = 1;
         public int KeysInHand = 0;
@@ -53,6 +83,7 @@ namespace Test {
         public int[] Rock = { 0, 0, 0 };
         public int[] Spikes = { 0 };
         public int[] Enimes = new int[120];
+        public int[] Timer = { 0, 0, 0 };
 
         public static string[] Map = new string[360];
 
@@ -65,6 +96,7 @@ namespace Test {
         public bool HasEnimes = false;
         public bool OnTeleport = false;
         public bool HardMode = false;
+        public bool GODMODE = true;
 
         public Game1() {
             _graphics = new GraphicsDeviceManager(this);
@@ -77,6 +109,8 @@ namespace Test {
             Transition(2);
             MediaPlayer.Volume = 0.5f;
             SoundEffect.MasterVolume = 0.5f;
+            SerializeElement("C:/Users/Zachary/OneDrive/Desktop/TEST.xml");
+            SerializeNode("C:/Users/Zachary/OneDrive/Desktop/TEST1.xml");
             base.Initialize();
         }
 
@@ -100,11 +134,10 @@ namespace Test {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
             targetBatch = new SpriteBatch(GraphicsDevice);
             LevelTransition = new SpriteBatch(GraphicsDevice);
-            LevelTransitionTarget = new RenderTarget2D(GraphicsDevice, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Width);
+            LevelTransitionTarget = new RenderTarget2D(GraphicsDevice, GraphicsDevice.DisplayMode.Width, GraphicsDevice.DisplayMode.Height);
             target = new RenderTarget2D(GraphicsDevice, 800, 720);
             Tileset = Content.Load<Texture2D>("Original");
             font = Content.Load<SpriteFont>("MainFont");
-            FadeTexture = new Texture2D(GraphicsDevice, GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height);
             soundEffects.Add(Content.Load<SoundEffect>("BoxPushSoundEffect"));
             soundEffects.Add(Content.Load<SoundEffect>("EnimeMovingSoundEffect"));
             soundEffects.Add(Content.Load<SoundEffect>("KeySoundEffect"));
@@ -132,6 +165,18 @@ namespace Test {
             SoundEffect.MasterVolume = 0.1f;
             IsMouseVisible = false;
             if (FadeDir == 0) {
+                Time += (float)gameTime.ElapsedGameTime.TotalSeconds;
+                Timer[0] = (int)Time;
+                if (Timer[0] > 59) {
+                    Timer[1]++;
+                    Timer[0] = 0;
+                    Time = 0;
+                }
+                if (Timer[1] > 59) {
+                    Timer[2]++;
+                    Timer[1] = 0;
+                }
+
                 if (GamePad.GetState(PlayerIndex.One).Buttons.Start == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Enter))
                     Transition(0);
                 if (PLayerAniTime == 0 && Rock[0] == 0) {
@@ -330,7 +375,7 @@ namespace Test {
                                     Map[Enimes[i]] = "0x17";
                                 break;
                             case "0x1A":
-                                if (Map[Enimes[i] + 20] == "0x00"){
+                                if (Map[Enimes[i] + 20] == "0x00") {
                                     Map[Enimes[i]] = "0x00";
                                     Map[Enimes[i] + 20] = "0x1A";
                                     Enimes[i] += 20;
@@ -359,7 +404,7 @@ namespace Test {
                         }
                     }
                 }
-                if(FadeDir == 0)
+                if (FadeDir == 0)
                     Spikes[0]++;
             } else
                 SpikeNum = 0;
@@ -414,16 +459,16 @@ namespace Test {
                     Transition(0);
                     break;
                 case "0x16": case "0x17": case "0x18": case "0x19": case "0x1A":
-                    if (HardMode == true) {
+                    if (HardMode == true && GODMODE == false) {
                         CurrentLevel = 0;
                         Deaths = 0;
                         TotalDeaths++;
-                        //Timer[0] = 0;
-                        //Timer[1] = 0;
-                        //Timer[2] = 0;
-                        //Timer[3] = 0;
+                        Time = 0;
+                        Timer[0] = 0;
+                        Timer[1] = 0;
+                        Timer[2] = 0;
                         Transition(1);
-                    } else {
+                    } else if (GODMODE == false) {
                         Deaths++;
                         TotalDeaths++;
                         Transition(0);
@@ -453,7 +498,7 @@ namespace Test {
                                     break;
                                 }
                             }
-                        }else{
+                        } else {
                             for (int i = 0; i < Fence[0]; i++) {
                                 if (((y / 40) * 20) + (x / 40) == Lock[i]) {
                                     Map[Lock[i]] = "0x00";
@@ -483,8 +528,16 @@ namespace Test {
                     break;
             }
         }
-        
-        protected override void Draw(GameTime gameTime){
+
+        protected override void Draw(GameTime gameTime) {
+            GraphicsDevice.SetRenderTarget(null);
+            int th = GraphicsDevice.Viewport.Height - (SafeZoneY * 2);
+            int ty = (GraphicsDevice.Viewport.Height / 2) - (th / 2);
+            float TEMP = (GraphicsDevice.Viewport.Height - (SafeZoneY * 2)) * (800.0f / 720.0f);
+            int tw = (int)TEMP;
+            int tx = (GraphicsDevice.Viewport.Width / 2) - (tw / 2);
+            int fx = (GraphicsDevice.Viewport.Width / 2) - 40;
+            int fy = (GraphicsDevice.Viewport.Height / 2) - 60;
             GraphicsDevice.SetRenderTarget(target);
             GraphicsDevice.Clear(Color.CornflowerBlue);
             _spriteBatch.Begin();
@@ -496,34 +549,56 @@ namespace Test {
             GraphicsDevice.SetRenderTarget(LevelTransitionTarget);
             GraphicsDevice.Clear(Color.Black);
             LevelTransition.Begin();
-            LevelTransition.DrawString(font, "Level" + CurrentLevel.ToString(), new Vector2(100, 100), Color.White);
+            string STEMP;
+            if (CurrentLevel < 100) {
+                if (CurrentLevel < 10)
+                    STEMP = "00" + CurrentLevel.ToString();
+                else
+                    STEMP = "0" + CurrentLevel.ToString();
+            } else 
+                STEMP = CurrentLevel.ToString();
+            LevelTransition.DrawString(font, STEMP, new Vector2(fx, fy), Color.White);
+            LevelTransition.Draw(Tileset, new Vector2(fx - 100, fy + 34), new Rectangle(280, 40, 40, 40), Color.White, 0f, Vector2.Zero, 1.93f, SpriteEffects.None, 0f);
             LevelTransition.End();
             GraphicsDevice.SetRenderTarget(null);
             GraphicsDevice.Clear(new Color(183, 142, 135));
             targetBatch.Begin();
-            int th = GraphicsDevice.Viewport.Height - (SafeZoneY * 2);
-            int ty = (GraphicsDevice.Viewport.Height / 2) - (th / 2);
-            float TEMP = (GraphicsDevice.Viewport.Height - (SafeZoneY * 2)) * (800.0f / 720.0f);
-            int tw = (int)TEMP;
-            int tx = (GraphicsDevice.Viewport.Width / 2) - (tw / 2);
             targetBatch.Draw(target, new Rectangle(tx, ty, tw, th), Color.White);
-            if (FadeDir == 1) {
-                FadeAlpha += 0.03f;
-                if (FadeAlpha >= 1.0f)
-                    FadeDir = 3;
+            switch (FadeDir) {
+                case 1:
+                    FadeAlpha += 0.05f;
+                    if (FadeAlpha >= 1.0f)
+                        FadeDir = 3;
+                    break;
+                case 2:
+                    FadeAlpha -= 0.05f;
+                    if (FadeAlpha <= 0.0f)
+                        FadeDir = 0;
+                    break;
+                case 3:
+                    FadeStop += 1;
+                    if (FadeStop >= 80) {
+                        FadeStop = 0;
+                        Transition(1);
+                    }
+                    break;
             }
-            if (FadeDir == 2) {
-                FadeAlpha -= 0.03f;
-                if (FadeAlpha <= 0.0f)
-                    FadeDir = 0;
-            }
-            if (FadeDir == 3) {
-                FadeStop++;
-                if (FadeStop >= 60)
-                    Transition(1);
-            }
+            string TTEMP1, TTEMP2, TTEMP3;
+            if (Timer[0] < 10)
+                TTEMP1 = "0" + Timer[0].ToString();
+            else
+                TTEMP1 = Timer[0].ToString();
+            if (Timer[1] < 10)
+                TTEMP2 = "0" + Timer[1].ToString();
+            else
+                TTEMP2 = Timer[1].ToString();
+            if (Timer[2] < 10)
+                TTEMP3 = "0" + Timer[2].ToString();
+            else
+                TTEMP3 = Timer[2].ToString();
+            targetBatch.DrawString(font, TTEMP3 + ":" + TTEMP2 + ":" + TTEMP1, new Vector2(5, 0), Color.White, 0f, Vector2.Zero, 0.5f, SpriteEffects.None, 0f);
             if (FadeDir != 0)
-                targetBatch.Draw(LevelTransitionTarget, Vector2.Zero, Color.White * FadeAlpha);            
+                targetBatch.Draw(LevelTransitionTarget, Vector2.Zero, Color.White * FadeAlpha);
             targetBatch.End();
             base.Draw(gameTime);
         }
@@ -1156,7 +1231,7 @@ namespace Test {
             "0x28","0x00","0x00","0x00","0x17","0x00","0x00","0x1B","0x00","0x05","0x00","0x05","0x00","0x05","0x00","0x00","0x1B","0x00","0x05","0x24",
             "0x28","0x00","0x00","0x00","0x00","0x19","0x00","0x1B","0x05","0x00","0x05","0x00","0x05","0x00","0x05","0x00","0x1B","0x00","0x00","0x24",
             "0x28","0x04","0x00","0x00","0x00","0x00","0x17","0x1B","0x00","0x05","0x00","0x05","0x00","0x05","0x00","0x05","0x1B","0x00","0x05","0x24",
-            "0x29","0x1E","0x14","0x02","0x02","0x02","0x02","0x2C","0x02","0x02","0x02","0x02","0x02","0x02","0x02","0x14","0x1C","0x05","0x00","0x24",
+            "0x29","0x1E","0x14","0x1F","0x02","0x02","0x02","0x2C","0x02","0x02","0x02","0x02","0x02","0x02","0x1E","0x14","0x1C","0x05","0x00","0x24",
             "0x28","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x19","0x24",
             "0x28","0x03","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x00","0x17","0x24",
             "0x31","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x27","0x32"
@@ -1827,6 +1902,7 @@ namespace Test {
 
         public void SwitchLevel() {
             switch (CurrentLevel) {
+                case 0: ChangeOverLevels(MainMenuMap); break;
                 case 1: ChangeOverLevels(LevelOne); break;
                 case 2: ChangeOverLevels(LevelTwo); break;
                 case 3: ChangeOverLevels(LevelThree); break;
@@ -2611,7 +2687,7 @@ namespace Test {
                     Enimes[40] = 222;
                     Enimes[41] = 238;
                     Enimes[42] = 243;
-                    Enimes[43] = 237;
+                    Enimes[43] = 257;
                     Enimes[44] = 264;
                     Enimes[45] = 270;
                     Enimes[46] = 276;
@@ -2962,8 +3038,8 @@ namespace Test {
                     Fence[2] = 278;
                     Fence[3] = 169;
                     Lock[0] = 163;
-                    Lock[1] = 338;
-                    Lock[2] = 321;
+                    Lock[2] = 338;
+                    Lock[1] = 321;
                     HasEnimes = true;
                     HasSpikes = true;
                     Enimes[1] = 16;
